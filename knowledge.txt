@@ -1,0 +1,6 @@
+CachyOS is a Linux distribution based on Arch Linux, focused on performance and responsiveness.
+    Key features of CachyOS:
+    - Uses custom kernels compiled with x86-64-v3 and x86-64-v4 CPU instruction sets.
+    - Features the BORE (Burst-Oriented Response Enhancer) CPU scheduler by default.
+    - Includes a custom package management tool named cachyos-rate-mirrors for mirror selection.
+    - Supports KDE Plasma, GNOME, Hyprland, and XFCE desktop environments.
