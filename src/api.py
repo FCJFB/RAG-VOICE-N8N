@@ -1,16 +1,16 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional
+from src.config import MAX_COSINE_DISTANCE
 from src.pipeline import RAGPipeline
+from src.reasoning import generate_reasoning_plan, synthesize_final_answer
 
-# Name the instance 'app'
 app = FastAPI(
     title="CachyOS Local RAG API",
     description="Privacy-focused, local RAG pipeline with CoT reasoning and distance thresholding.",
     version="1.0.0"
 )
 
-# Pipeline initialization
 pipeline = RAGPipeline()
 
 class QueryRequest(BaseModel):
@@ -33,37 +33,38 @@ async def query_rag(payload: QueryRequest):
         raise HTTPException(status_code=400, detail="Query string cannot be empty.")
     
     try:
-        # Run vector similarity search
         results = pipeline.db.similarity_search_with_score(payload.query, k=4)
-        best_doc, top_score = (results[0][0], results[0][1]) if results else (None, float('inf'))
         
-        is_relevant = top_score <= pipeline.db._collection.count() and top_score <= 350.0  # MAX_COSINE_DISTANCE check
+        # Safely unpack mock or real search results
+        if results and len(results) > 0:
+            best_doc, top_score = results[0]
+            top_score = float(top_score)
+        else:
+            best_doc, top_score = None, float('inf')
+        
+        is_relevant = top_score <= MAX_COSINE_DISTANCE
         
         if not is_relevant:
-            # Fallback path for greetings / out-of-scope queries
-            fallback_prompt = f"""You are a specialized CachyOS Linux documentation assistant.
-
-INSTRUCTIONS:
-- For greetings, farewells, or polite conversational remarks, respond warmly and concisely.
-- For non-technical or out-of-scope questions (e.g., trivia, entertainment, cooking), politely state that you only assist with CachyOS Linux documentation.
-
-User Input: {payload.query}
-Response:"""
-            response = pipeline.llm.invoke(fallback_prompt).strip()
+            fallback_prompt = f"User Input: {payload.query}\nResponse:"
+            raw_response = pipeline.llm.invoke(fallback_prompt)
+            
+            # Extract plain text string safely
+            if hasattr(raw_response, 'content'):
+                response_text = str(raw_response.content)
+            else:
+                response_text = str(raw_response)
+            
             return QueryResponse(
                 query=payload.query,
-                response=response,
+                response=response_text.strip(),
                 vector_distance=round(top_score, 2) if top_score != float('inf') else None,
                 reasoning_plan=None,
                 is_relevant=False
             )
 
-        # Relevant technical query path -> Two-Pass Reasoning
-        context_text = "\n---\n".join([doc.page_content for doc, _ in results])
-        from src.reasoning import generate_reasoning_plan, synthesize_final_answer
-        
-        reasoning_plan = generate_reasoning_plan(payload.query, context_text, pipeline.llm)
-        final_answer = synthesize_final_answer(payload.query, context_text, reasoning_plan, pipeline.llm)
+        context_text = "\n---\n".join([str(getattr(doc, 'page_content', '')) for doc, _ in results])
+        reasoning_plan = str(generate_reasoning_plan(payload.query, context_text, pipeline.llm))
+        final_answer = str(synthesize_final_answer(payload.query, context_text, reasoning_plan, pipeline.llm))
 
         return QueryResponse(
             query=payload.query,
@@ -73,5 +74,7 @@ Response:"""
             is_relevant=True
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal pipeline error: {str(e)}")

@@ -47,7 +47,7 @@ Response:"""
         print(final_response)
 
 
-if __name__ == "__main__":
+if __name__ == "__main__": # pragma: no cover
     pipeline = RAGPipeline()
 
     print("\n--- Unified RAG CLI (type 'exit' or 'q' to quit) ---")
