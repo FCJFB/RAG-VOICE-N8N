@@ -9,6 +9,13 @@ services:
         - 8.8.8.8
       volumes:
         - ollama_storage:/root/.ollama
+      deploy:
+        resources:
+          reservations:
+            devices:
+              - driver: nvidia
+                count: 1
+                capabilities: [ gpu ]
       restart: unless-stopped
 
   api:
@@ -36,6 +43,52 @@ services:
       - API_URL=http://api:8000/api/v1/query
     depends_on:
       - api
+    restart: unless-stopped
+
+  # Local Whisper speech-to-text (Speaches), OpenAI-compatible.
+  # Host port 8001 avoids clashing with the RAG API on host port 8000.
+  speaches:
+    image: ghcr.io/speaches-ai/speaches:latest-cuda
+    container_name: cachyos_speaches
+    ports:
+      - "8001:8000"
+    environment:
+      - WHISPER__COMPUTE_TYPE=int8
+      - WHISPER__TTL=-1
+    volumes:
+      - ./speaches_data:/home/ubuntu/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]
+    restart: unless-stopped
+
+  # Local text-to-speech (Kokoro), OpenAI-compatible.
+  kokoro:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    container_name: cachyos_kokoro
+    ports:
+      - "8880:8880"
+    restart: unless-stopped
+
+  # Browser-based voice interface (STT -> RAG -> TTS).
+  voice:
+    build: .
+    container_name: cachyos_rag_voice
+    command: uvicorn src.voice_api:app --host 0.0.0.0 --port 8765
+    ports:
+      - "8765:8765"
+    environment:
+      - STT_URL=http://speaches:8000/v1
+      - TTS_URL=http://kokoro:8880/v1
+      - RAG_API_URL=http://api:8000/api/v1/query
+    depends_on:
+      - api
+      - speaches
+      - kokoro
     restart: unless-stopped
 
 volumes:

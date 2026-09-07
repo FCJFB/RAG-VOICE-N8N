@@ -6,12 +6,13 @@ UVICORN := $(VENV)/bin/uvicorn
 STREAMLIT := $(VENV)/bin/streamlit
 PYTEST := $(VENV)/bin/pytest
 
-.PHONY: help venv install api ui test clean
+.PHONY: help venv install api ui voice test clean
 
 help:
 	@echo "Available commands:"
 	@echo "  make api    - Start the FastAPI backend server (Port 8000)"
 	@echo "  make ui     - Start the Streamlit web interface (Port 8501)"
+	@echo "  make voice  - Start the voice interface (Port 8765, needs STT/TTS services)"
 	@echo "  make test   - Run the PyTest unit test suite"
 	@echo "  make cli    - Launch interactive CLI mode"
 	@echo "  make clean  - Remove bytecode and temporary cache files"
@@ -29,6 +30,9 @@ api: $(PYTHON)
 
 ui: $(PYTHON)
 	$(STREAMLIT) run app.py
+
+voice: $(PYTHON)
+	$(UVICORN) src.voice_api:app --reload --port 8765
 
 test: $(PYTHON)
 	$(PYTHON) -m pytest -v

@@ -113,6 +113,28 @@ docker exec -it cachyos_rag_api python -m src.inspect_db
 * Streamlit Frontend: http://localhost:8501
 * FastAPI Interactive Docs: http://localhost:8000/docs
 * Health Check Endpoint: http://localhost:8000/health
+* Voice Interface: http://localhost:8765
+* Speaches STT (Swagger): http://localhost:8001/docs
+* Kokoro TTS: http://localhost:8880
+
+---
+
+## Voice Interface (STT → RAG → TTS)
+
+A browser-based voice interface (Port 8765) reuses the speech-to-text / text-to-speech pipeline from the companion project and routes it through the RAG pipeline instead of a raw LLM.
+
+Flow: **microphone audio → Speaches (Whisper STT) → RAG query API → Kokoro (TTS) → spoken answer**.
+
+Open http://localhost:8765, hold the "Hold to talk" button, ask a question about your lecture slides, and release to hear the answer. The page also shows the transcript, answer text, and cited sources.
+
+The stack is wired into `docker-compose.yml` (`speaches`, `kokoro`, and `voice` services) so `make docker-up` starts everything. Speaches is mapped to host port 8001 (its container still listens on 8000) to avoid clashing with the RAG API on 8000.
+
+Speech-to-text uses the full `Systran/faster-whisper-medium.en` model (configured via `STT_MODEL` in `src/config.py`). On the GTX 1080 Ti (Pascal, compute capability 6.1) Whisper runs with `WHISPER__COMPUTE_TYPE=int8` — the only accelerated type CTranslate2 supports on that architecture (`float16`/`int8_float16` are rejected for lacking efficient FP16 compute). Both the Ollama and Speaches services reserve the GPU via `deploy.resources.reservations.devices` in `docker-compose.yml`.
+
+Run the voice interface standalone for local development:
+
+* Start the voice server: `make voice`
+* The STT/TTS/RAG endpoints are configurable via `STT_URL`, `TTS_URL`, and `RAG_API_URL` (see `src/config.py`).
 
 ---
 
@@ -144,7 +166,9 @@ If developing locally outside of Docker:
 │   ├── inspect_db.py         # Vector store status inspector
 │   ├── pipeline.py           # Core RAG execution logic
 │   ├── reasoning.py          # Two-pass CoT prompt templates
-│   └── vector_store.py       # ChromaDB embedding and metadata-filtered search
+│   ├── vector_store.py       # ChromaDB embedding and metadata-filtered search
+│   ├── voice_api.py          # FastAPI voice interface (browser mic UI)
+│   └── voice_pipeline.py     # STT -> RAG -> TTS orchestration
 ├── tests/                    # PyTest integration and unit tests
 ├── app.py                    # Streamlit web UI script
 ├── docker-compose.yml        # Multi-service stack definition

@@ -16,4 +16,4 @@ COPY src/ ./src/
 COPY app.py .
 COPY data/ ./data/
 
-EXPOSE 8000 8501
+EXPOSE 8000 8501 8765
