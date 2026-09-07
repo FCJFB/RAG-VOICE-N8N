@@ -47,3 +47,7 @@ docker-down:
 
 docker-logs:
 	docker compose logs -f
+ingest:
+	./venv/bin/python -m src.ingest
+inspect:
+	./venv/bin/python -m src.inspect_db

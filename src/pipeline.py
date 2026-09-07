@@ -1,61 +1,66 @@
-from langchain_ollama import OllamaLLM
-from src.config import MAX_COSINE_DISTANCE, LLM_MODEL
-from src.vector_store import get_or_create_vector_db
+from typing import Optional, Dict, Any
+from src.vector_store import query_vector_store
 from src.reasoning import generate_reasoning_plan, synthesize_final_answer
+from src.config import MAX_COSINE_DISTANCE, LLM_MODEL, OLLAMA_HOST
+from langchain_community.llms import Ollama
 
 class RAGPipeline:
     def __init__(self):
-        self.db = get_or_create_vector_db()
-        self.llm = OllamaLLM(model=LLM_MODEL)
+        self.llm = Ollama(model=LLM_MODEL, base_url=OLLAMA_HOST)
 
-    def process_query(self, query: str):
-        # 1. Always run similarity search first
-        results = self.db.similarity_search_with_score(query, k=4)
-        
-        best_doc, top_score = (results[0][0], results[0][1]) if results else (None, float('inf'))
-        print(f"\n[Vector Search Distance Score: {top_score:.2f}]")
+    def run(
+        self,
+        query: str,
+        course_id: Optional[str] = None,
+        lecture_num: Optional[int] = None
+    ) -> Dict[str, Any]:
+        results = query_vector_store(
+            query=query,
+            k=4,
+            course_id=course_id,
+            lecture_num=lecture_num
+        )
 
-        # 2. Check mathematical relevance against threshold
+        if results and len(results) > 0:
+            best_doc, top_score = results[0]
+            top_score = float(top_score)
+        else:
+            best_doc, top_score = None, float('inf')
+
         is_relevant = top_score <= MAX_COSINE_DISTANCE
 
-        # 3. IF IRRELEVANT (Greetings, Small Talk, Out-of-Scope Questions)
         if not is_relevant:
-            unified_fallback_prompt = f"""You are a helpful, specialized CachyOS Linux documentation assistant.
+            fallback_prompt = f"User Query: {query}\nProvide a concise general response:"
+            raw = self.llm.invoke(fallback_prompt)
+            res_text = raw.content if hasattr(raw, 'content') else str(raw)
+            return {
+                "query": query,
+                "response": res_text.strip(),
+                "vector_distance": round(top_score, 2) if top_score != float('inf') else None,
+                "reasoning_plan": None,
+                "is_relevant": False,
+                "sources": []
+            }
 
-INSTRUCTIONS:
-- For greetings, farewells, or polite conversational remarks, respond warmly and concisely.
-- For non-technical or out-of-scope questions (e.g., trivia, entertainment, cooking), politely state that you only assist with CachyOS Linux documentation.
-
-User Input: {query}
-Response:"""
-
-            response = self.llm.invoke(unified_fallback_prompt).strip()
-            print("\n=== RESPONSE ===")
-            print(response)
-            return
-
-        # 4. IF RELEVANT (Technical CachyOS Queries) -> Run Two-Pass Reasoning
+        # Extract context and source metadata
         context_text = "\n---\n".join([doc.page_content for doc, _ in results])
+        sources = [
+            {
+                "file": doc.metadata.get("source_file", "Unknown"),
+                "slide": doc.metadata.get("slide_num", "N/A"),
+                "course": doc.metadata.get("course_id", "GENERAL")
+            }
+            for doc, _ in results
+        ]
 
-        reasoning_plan = generate_reasoning_plan(query, context_text, self.llm)
-        print("\n┌─── LLM REASONING STEPS (PASS 1) ──────────────────────────────")
-        print(reasoning_plan)
-        print("└───────────────────────────────────────────────────────────────")
+        reasoning_plan = str(generate_reasoning_plan(query, context_text, self.llm))
+        final_answer = str(synthesize_final_answer(query, context_text, reasoning_plan, self.llm))
 
-        final_response = synthesize_final_answer(query, context_text, reasoning_plan, self.llm)
-        print("\n=== FINAL RAG RESPONSE (PASS 2) ===")
-        print(final_response)
-
-
-if __name__ == "__main__": # pragma: no cover
-    pipeline = RAGPipeline()
-
-    print("\n--- Unified RAG CLI (type 'exit' or 'q' to quit) ---")
-    while True:
-        user_query = input("\nAsk a question: ").strip()
-        if user_query.lower() in ["exit", "q"]:
-            print("Goodbye!")
-            break
-
-        if user_query:
-            pipeline.process_query(user_query)
+        return {
+            "query": query,
+            "response": final_answer,
+            "vector_distance": round(top_score, 2),
+            "reasoning_plan": reasoning_plan,
+            "is_relevant": True,
+            "sources": sources
+        }

@@ -1,0 +1,27 @@
+# PDF documents (sample lecture slide decks are not versioned)
+*.pdf
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Test / coverage artifacts
+.pytest_cache/
+.coverage
+.coveragecr
+htmlcov/
+coverage.xml
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Local config / secrets
+.env

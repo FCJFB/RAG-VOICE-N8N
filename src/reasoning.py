@@ -1,49 +1,37 @@
-from langchain_ollama import OllamaLLM
-from src.config import LLM_MODEL
-
-def generate_reasoning_plan(query: str, context_text: str, llm: OllamaLLM) -> str:
-    """Pass 1: Forces Llama 3.2 to generate explicit reasoning steps ONLY."""
+def generate_reasoning_plan(query: str, context: str, llm) -> str:
+    """Single-pass: ask the model to reason step-by-step over the retrieved slides."""
     plan_prompt = f"""
-    You are a logical reasoning engine. Analyze the context and question below.
+You are an academic tutor analyzing lecture material.
 
-    Tasks:
-    1. Verify if the context contains facts relevant to the question.
-    2. List the relevant key facts from the context.
-    3. Outline a brief logic plan for answering the question.
-    4. If facts are missing, write EXACTLY: "STATUS: INSUFFICIENT CONTEXT". Otherwise write "STATUS: SUFFICIENT CONTEXT".
+Query: {query}
+Retrieved Slides:
+{context}
 
-    Do NOT write the final user answer yet. Only provide the reasoning plan.
+Task: Think through the problem step-by-step using ONLY the slides.
+List the key facts from the slides that are relevant to the query, then outline
+a short logic plan for answering. Do NOT write the final answer yet.
+"""
+    raw = llm.invoke(plan_prompt)
+    return raw.content if hasattr(raw, 'content') else str(raw)
 
-    Context:
-    {context_text}
 
-    Question: {query}
-
-    Reasoning Plan:
-    """
-    return llm.invoke(plan_prompt).strip()
-
-def synthesize_final_answer(query: str, context_text: str, plan: str, llm: OllamaLLM) -> str:
-    """Pass 2: Uses the Reasoning Plan from Pass 1 to generate the final response."""
-    
-    # Check if Pass 1 flagged missing context directly in Python
-    if "STATUS: INSUFFICIENT CONTEXT" in plan:
-        return "I do not have enough information in my knowledge base to answer that."
-
+def synthesize_final_answer(query: str, context_text: str, plan: str, llm) -> str:
+    """Uses the reasoning plan to produce the final concise answer."""
     answer_prompt = f"""
-    You are a helpful assistant. Use the Context and Reasoning Plan below to answer the user's question.
+You are a helpful academic assistant answering a student's question using retrieved lecture slides.
 
-    Rules:
-    - Base your answer strictly on the facts confirmed in the Context and Reasoning Plan.
-    - Keep the answer direct and concise.
+Rules:
+- Base your answer strictly on the facts confirmed in the Reasoning Plan and Slides Context.
+- Keep the answer direct and concise.
 
-    Context:
-    {context_text}
+Slides Context:
+{context_text}
 
-    Reasoning Plan:
-    {plan}
+Reasoning Plan:
+{plan}
 
-    Question: {query}
-    Answer:
-    """
-    return llm.invoke(answer_prompt).strip()
+Question: {query}
+Answer:
+"""
+    raw = llm.invoke(answer_prompt)
+    return raw.content if hasattr(raw, 'content') else str(raw)

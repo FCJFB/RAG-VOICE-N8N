@@ -1,47 +1,43 @@
-import os
-from langchain_community.document_loaders import TextLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from typing import List, Tuple, Optional, Dict, Any
 from langchain_chroma import Chroma
 from langchain_ollama import OllamaEmbeddings
-from src.config import DB_DIR, DOC_PATH, EMBED_MODEL
+from langchain_core.documents import Document
+from src.config import DB_DIR, OLLAMA_HOST, EMBED_MODEL
 
-def get_or_create_vector_db() -> Chroma:
-    """Loads existing ChromaDB or initializes a new one from source documents."""
-    embedding_function = OllamaEmbeddings(model=EMBED_MODEL)
-
-    if os.path.exists(DB_DIR) and os.listdir(DB_DIR):
-        print("✓ Existing vector database found. Loading from disk...")
-        return Chroma(
-            persist_directory=str(DB_DIR), 
-            embedding_function=embedding_function
-        )
-
-    print("! No database found. Building new vector database...")
-    
-    # Create default knowledge file if missing
-    if not os.path.exists(DOC_PATH):
-        os.makedirs(os.path.dirname(DOC_PATH), exist_ok=True)
-        sample_data = """
-        CachyOS is an Arch Linux-based distribution optimized for performance and ease of use.
-        Key features of CachyOS:
-        - Uses custom kernels compiled with x86-64-v3 and x86-64-v4 CPU instruction sets.
-        - Features the BORE (Burst-Oriented Response Enhancer) CPU scheduler by default.
-        - Includes a custom package management tool named cachyos-rate-mirrors for mirror selection.
-        - Supports KDE Plasma, GNOME, Hyprland, and XFCE desktop environments.
-        """
-        with open(DOC_PATH, "w", encoding="utf-8") as f:
-            f.write(sample_data.strip())
-
-    loader = TextLoader(str(DOC_PATH))
-    documents = loader.load()
-
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
-    chunks = text_splitter.split_documents(documents)
-
-    vector_db = Chroma.from_documents(
-        documents=chunks,
-        embedding=embedding_function,
-        persist_directory=str(DB_DIR)
+def get_vector_store() -> Chroma:
+    embeddings = OllamaEmbeddings(
+        model=EMBED_MODEL,
+        base_url=OLLAMA_HOST
     )
-    print("✓ Vector database initialized and saved to disk.")
-    return vector_db
+    return Chroma(
+        persist_directory=str(DB_DIR),
+        embedding_function=embeddings
+    )
+
+def query_vector_store(
+    query: str,
+    k: int = 4,
+    course_id: Optional[str] = None,
+    lecture_num: Optional[int] = None
+) -> List[Tuple[Document, float]]:
+    """
+    Queries ChromaDB with optional metadata filtering for course_id and lecture_num.
+    """
+    db = get_vector_store()
+    
+    # Build Chroma metadata filter
+    where_filter: Dict[str, Any] = {}
+    if course_id:
+        where_filter["course_id"] = course_id.upper()
+    if lecture_num is not None:
+        where_filter["lecture_num"] = lecture_num
+
+    # Chroma expects None if no filter conditions are applied
+    filter_dict = where_filter if where_filter else None
+
+    results = db.similarity_search_with_score(
+        query,
+        k=k,
+        filter=filter_dict
+    )
+    return results
