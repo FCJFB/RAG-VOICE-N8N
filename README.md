@@ -170,6 +170,8 @@ Import it once the stack is running:
 
 n8n persists its state in the `n8n_data` Docker volume and reaches the other services over the compose network (`api`, `kokoro`, `speaches`). To run n8n outside Docker, swap the node URLs from service names to `localhost` (e.g. `http://localhost:8000/api/v1/query`).
 
+TODO: Is this still current?
+
 ### Voice workflow with per-session logging
 
 A second bundled workflow (`n8n/workflows/voice-rag-assistant.json`) is what the 8765 voice UI posts to. It receives the recorded WAV (plus a `session_id`) as multipart form data and runs the full voice chain inside n8n:
@@ -243,10 +245,11 @@ If developing locally outside of Docker:
 
 ## Testing & CI Workflow
 
-Pushing to main automatically triggers a GitHub Actions pipeline that runs unit tests, calculates code coverage via pytest-cov, and uploads the resulting report as an artifact.
+~~Pushing to main automatically triggers a GitHub Actions pipeline that runs unit tests, calculates code coverage via pytest-cov, and uploads the resulting report as an artifact.
 
 Run tests locally:
-pytest --cov=src --cov-report=term-missing
+pytest --cov=src --cov-report=term-missing~~
+TODO: Needs overhaul, pytests are not uptodate with current pipeline
 
 ---
 
