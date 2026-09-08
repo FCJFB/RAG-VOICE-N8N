@@ -31,3 +31,4 @@ n8n_logs/*.jsonl
 
 # Downloaded model weights (Whisper STT cache) and generated vector store
 speaches_data/
+.openclaude
