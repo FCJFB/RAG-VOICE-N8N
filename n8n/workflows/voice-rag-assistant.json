@@ -1,0 +1,171 @@
+{
+  "name": "Voice RAG Assistant (Session Logging)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "voice-rag",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "11111111-1111-4111-8111-111111111111",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-1200, 300],
+      "webhookId": "22222222-2222-4222-8222-222222222222"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://speaches:8000/v1/audio/transcriptions",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "file"
+            },
+            {
+              "parameterType": "formData",
+              "name": "model",
+              "value": "Systran/faster-whisper-medium.en"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "33333333-3333-4333-8333-333333333333",
+      "name": "Transcribe Audio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-820, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:8000/api/v1/query",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: $json.text }) }}",
+        "options": {}
+      },
+      "id": "44444444-4444-4444-8444-444444444444",
+      "name": "Query RAG API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-440, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://kokoro:8880/v1/audio/speech",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'kokoro', input: $('Query RAG API').first().json.response, voice: 'alloy', response_format: 'mp3' }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "55555555-5555-4555-8555-555555555555",
+      "name": "Synthesize Speech",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-60, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const transcript = $node['Transcribe Audio'].json.text || '';\nconst rag = $node['Query RAG API'].json || {};\nconst sessionId = ($node['Webhook'].json.body && $node['Webhook'].json.body.session_id) || 'default';\n\nlet audioBase64 = '';\nconst bin = $input.first().binary;\nif (bin && bin.data && bin.data.data) {\n  audioBase64 = bin.data.data;\n}\n\nconst entry = {\n  timestamp: new Date().toISOString(),\n  session_id: sessionId,\n  transcript: transcript,\n  answer: rag.response || '',\n  is_relevant: rag.is_relevant,\n  vector_distance: rag.vector_distance,\n  sources: rag.sources || [],\n};\n\nconst fs = require('fs');\nfs.appendFileSync('/home/node/logs/voice_sessions.jsonl', JSON.stringify(entry) + '\\n');\n\nreturn [{\n  json: {\n    transcript: transcript,\n    answer: rag.response || '',\n    sources: rag.sources || [],\n    is_relevant: rag.is_relevant,\n    vector_distance: rag.vector_distance,\n    audio_base64: audioBase64,\n    audio_content_type: 'audio/mpeg',\n  }\n}];"
+      },
+      "id": "66666666-6666-4666-8666-666666666666",
+      "name": "Build Response + Log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [320, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "77777777-7777-4777-8777-777777777777",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [700, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Transcribe Audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcribe Audio": {
+      "main": [
+        [
+          {
+            "node": "Query RAG API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query RAG API": {
+      "main": [
+        [
+          {
+            "node": "Synthesize Speech",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Synthesize Speech": {
+      "main": [
+        [
+          {
+            "node": "Build Response + Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Response + Log": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

@@ -90,6 +90,20 @@ INDEX_HTML = r"""<!DOCTYPE html>
     const answerEl = document.getElementById('answer');
     const sourcesEl = document.getElementById('sources');
 
+    // n8n orchestrates STT -> RAG -> TTS and logs each exchange per session.
+    // The voice UI posts to the n8n webhook instead of the local /voice/ask
+    // endpoint so n8n sits in the middle of the flow.
+    const N8N_WEBHOOK_URL = 'http://' + window.location.hostname + ':5678/webhook/voice-rag';
+
+    function getSessionId() {
+      let id = localStorage.getItem('voice_session_id');
+      if (!id) {
+        id = (crypto.randomUUID && crypto.randomUUID()) || ('session-' + Date.now());
+        localStorage.setItem('voice_session_id', id);
+      }
+      return id;
+    }
+
     let audioContext = null;
     let processor = null;
     let stream = null;
@@ -162,9 +176,10 @@ INDEX_HTML = r"""<!DOCTYPE html>
       const wav = encodeWAV(samples, audioContext.sampleRate);
       const form = new FormData();
       form.append('file', wav, 'recording.wav');
+      form.append('session_id', getSessionId());
 
       try {
-        const res = await fetch('/voice/ask', { method: 'POST', body: form });
+        const res = await fetch(N8N_WEBHOOK_URL, { method: 'POST', body: form });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
           throw new Error(err.detail || ('HTTP ' + res.status));

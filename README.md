@@ -63,7 +63,7 @@ The pipeline uses a single-pass hybrid routing approach: incoming user queries a
 * PDF Parsing: pdfplumber, pdfminer.six
 * Containerization: Docker, Docker Compose
 * Testing & Quality: PyTest, pytest-cov, pytest-mock
-* Automation: GNU Make, GitHub Actions CI
+* Automation: GNU Make, GitHub Actions CI, n8n
 
 ---
 
@@ -116,6 +116,7 @@ docker exec -it cachyos_rag_api python -m src.inspect_db
 * Voice Interface: http://localhost:8765
 * Speaches STT (Swagger): http://localhost:8001/docs
 * Kokoro TTS: http://localhost:8880
+* n8n Workflow Editor: http://localhost:5678
 
 ---
 
@@ -127,6 +128,8 @@ Flow: **microphone audio → Speaches (Whisper STT) → RAG query API → Kokoro
 
 Open http://localhost:8765, hold the "Hold to talk" button, ask a question about your lecture slides, and release to hear the answer. The page also shows the transcript, answer text, and cited sources.
 
+When the n8n voice workflow is active (see below), the page posts each recording to the n8n webhook instead of the local `/voice/ask` endpoint. n8n then orchestrates the STT → RAG → TTS chain itself and appends every exchange — tagged with a per-browser `session_id` (kept in `localStorage`) — to `n8n_logs/voice_sessions.jsonl` on the host. This keeps the `voice_api.py` service as a thin HTML/static host while n8n sits in the middle of the data flow and logs history per session.
+
 The stack is wired into `docker-compose.yml` (`speaches`, `kokoro`, and `voice` services) so `make docker-up` starts everything. Speaches is mapped to host port 8001 (its container still listens on 8000) to avoid clashing with the RAG API on 8000.
 
 Speech-to-text uses the full `Systran/faster-whisper-medium.en` model (configured via `STT_MODEL` in `src/config.py`). On the GTX 1080 Ti (Pascal, compute capability 6.1) Whisper runs with `WHISPER__COMPUTE_TYPE=int8` — the only accelerated type CTranslate2 supports on that architecture (`float16`/`int8_float16` are rejected for lacking efficient FP16 compute). Both the Ollama and Speaches services reserve the GPU via `deploy.resources.reservations.devices` in `docker-compose.yml`.
@@ -135,6 +138,61 @@ Run the voice interface standalone for local development:
 
 * Start the voice server: `make voice`
 * The STT/TTS/RAG endpoints are configurable via `STT_URL`, `TTS_URL`, and `RAG_API_URL` (see `src/config.py`).
+
+---
+
+## n8n Workflow Orchestration
+
+n8n (Port 5678) adds a visual, no-code orchestration layer on top of the Python pipeline. This demonstrates the same workflow that would otherwise be hand-rolled in code — webhook ingestion, HTTP calls to the RAG API, conditional branching, and text-to-speech — as a reusable, inspectable workflow.
+
+The bundled workflow (`n8n/workflows/lecture-rag-assistant.json`) wires the services together:
+
+```
+Webhook (POST /lecture-rag)
+   -> Query RAG API  (POST http://api:8000/api/v1/query)
+   -> Is Relevant?   (branches on is_relevant)
+        |-- true  -> Synthesize Speech (Kokoro) -> Respond Audio (MP3)
+        |-- false -> Respond Text (JSON fallback)
+```
+
+Import it once the stack is running:
+
+1. Open the n8n editor at http://localhost:5678 and complete first-time signup.
+2. Workflows → Import from File → select `n8n/workflows/lecture-rag-assistant.json`.
+3. Open the imported workflow and toggle it **Active** (registers the `/lecture-rag` webhook).
+4. Trigger it with `curl`:
+   ```
+   curl -X POST http://localhost:5678/webhook/lecture-rag \
+     -H "Content-Type: application/json" \
+     -d '{"query": "What is spatial filtering?", "course_id": "IMAGEPROCESSING", "lecture_num": 1}'
+   ```
+   A relevant question returns the spoken answer as MP3; an out-of-domain question returns the text fallback JSON.
+
+n8n persists its state in the `n8n_data` Docker volume and reaches the other services over the compose network (`api`, `kokoro`, `speaches`). To run n8n outside Docker, swap the node URLs from service names to `localhost` (e.g. `http://localhost:8000/api/v1/query`).
+
+### Voice workflow with per-session logging
+
+A second bundled workflow (`n8n/workflows/voice-rag-assistant.json`) is what the 8765 voice UI posts to. It receives the recorded WAV (plus a `session_id`) as multipart form data and runs the full voice chain inside n8n:
+
+```
+Webhook (POST /voice-rag, multipart: file + session_id)
+   -> Transcribe Audio  (Speaches Whisper STT, forwards the binary WAV)
+   -> Query RAG API     (POST http://api:8000/api/v1/query)
+   -> Synthesize Speech (Kokoro TTS -> MP3)
+   -> Build Response + Log (Code node: base64-encode MP3 into JSON,
+        and append transcript/answer to n8n_logs/voice_sessions.jsonl)
+   -> Respond to Webhook (JSON: transcript, answer, sources, audio_base64)
+```
+
+Import it exactly like the text workflow, toggle it **Active**, then open http://localhost:8765 and talk to it. Each utterance lands as one JSON line in `n8n_logs/voice_sessions.jsonl`, keyed by the browser's `session_id`:
+
+```bash
+cat n8n_logs/voice_sessions.jsonl
+```
+
+The Code node needs `require('fs')` to append to the log, which is why the `n8n` service sets `NODE_FUNCTION_ALLOW_BUILTIN=fs` and bind-mounts `./n8n_logs` to `/home/node/logs` in `docker-compose.yml`. If you'd rather not use the filesystem log, remove that env var/mount and the `fs.appendFileSync(...)` line from the Code node — the flow still returns the spoken answer without logging.
+
+The `n8n` service also sets `N8N_DEFAULT_BINARY_DATA_MODE=default` so the Code node can inline the TTS audio as base64 (`$input.first().binary.data.data`) in the webhook response. With n8n's default `filesystem-v2` storage that field is just the literal string `"filesystem-v2"` and the browser can't play the answer.
 
 ---
 
@@ -170,6 +228,11 @@ If developing locally outside of Docker:
 │   ├── voice_api.py          # FastAPI voice interface (browser mic UI)
 │   └── voice_pipeline.py     # STT -> RAG -> TTS orchestration
 ├── tests/                    # PyTest integration and unit tests
+├── n8n/
+│   └── workflows/
+│       ├── lecture-rag-assistant.json   # n8n workflow orchestrating RAG -> TTS
+│       └── voice-rag-assistant.json     # n8n voice workflow (STT/RAG/TTS + session log)
+├── n8n_logs/                 # Per-session voice transcript/answer log (git-ignored)
 ├── app.py                    # Streamlit web UI script
 ├── docker-compose.yml        # Multi-service stack definition
 ├── Dockerfile                # Image definition for API and UI

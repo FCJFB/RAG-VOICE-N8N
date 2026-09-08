@@ -91,5 +91,38 @@ services:
       - kokoro
     restart: unless-stopped
 
+  # n8n workflow automation platform. Orchestrates the RAG/STT/TTS services
+  # (e.g. webhook -> RAG query -> relevance branch -> Kokoro TTS -> response).
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: cachyos_n8n
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      # Required for plain-HTTP local access; otherwise the editor refuses to
+      # set its session cookie and the login flow breaks.
+      - N8N_SECURE_COOKIE=false
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_PERSONALIZATION_ENABLED=false
+      - GENERIC_TIMEZONE=Europe/Berlin
+      # Store binary data in-memory (base64) rather than filesystem-v2 so the
+      # Code node can inline the TTS audio as base64 in the webhook response.
+      - N8N_DEFAULT_BINARY_DATA_MODE=default
+      # Allow the Code node to require('fs') so the voice workflow can append
+      # per-session transcript/answer history to a shared log file.
+      - NODE_FUNCTION_ALLOW_BUILTIN=fs
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n_logs:/home/node/logs
+    depends_on:
+      - api
+      - kokoro
+      - speaches
+    restart: unless-stopped
+
 volumes:
   ollama_storage:
+  n8n_data:

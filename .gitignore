@@ -25,3 +25,9 @@ coverage.xml
 
 # Local config / secrets
 .env
+
+# n8n voice session log (generated at runtime)
+n8n_logs/*.jsonl
+
+# Downloaded model weights (Whisper STT cache) and generated vector store
+speaches_data/

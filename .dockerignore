@@ -1,0 +1,36 @@
+# Git
+.git
+.gitignore
+.github/
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+env/
+
+# Tests / coverage
+.pytest_cache/
+.coverage
+.coveragecr
+htmlcov/
+coverage.xml
+tests/
+
+# Downloaded model weights & generated vector store (runtime artifacts)
+speaches_data/
+chroma_db/
+
+# n8n artifacts
+n8n/
+n8n_logs/
+
+# Local config / secrets
+.env
+
+# Docs / misc
+README.md
+Makefile
+docker-compose.yml
+Dockerfile
